@@ -3,16 +3,9 @@
 $OutputEncoding           = [System.Text.Encoding]::UTF8
 chcp 65001 | Out-Null
 
-# ─────────────────────────────────────────────────────────────
-#  VELOCITY LOADER
-#  Usage (PowerShell):
-#    irm https://raw.githubusercontent.com/cyro2000/VelocityPowershellLoader/main/velocity_loader.ps1 | iex
-# ─────────────────────────────────────────────────────────────
-
 $REPO_BASE = "https://raw.githubusercontent.com/cyro2000/VelocityPowershellLoader/main"
-$TMP       = $env:TEMP
+$TMP       = [System.IO.Path]::GetTempPath().TrimEnd('\')
 
-# ── Banner ────────────────────────────────────────────────────
 function Show-LoaderBanner {
     Clear-Host
     $lines = @(
@@ -32,7 +25,6 @@ function Show-LoaderBanner {
     Write-Host ""
 }
 
-# ── Status helpers ────────────────────────────────────────────
 function Write-Step([string]$msg) {
     Write-Host "  " -NoNewline
     Write-Host "[" -ForegroundColor DarkGray -NoNewline
@@ -62,7 +54,6 @@ function Write-Fail([string]$msg) {
     Write-Host $msg -ForegroundColor Red
 }
 
-# ── Check Python ──────────────────────────────────────────────
 function Get-PythonCmd {
     foreach ($cmd in @("python", "python3", "py")) {
         try {
@@ -76,7 +67,6 @@ function Get-PythonCmd {
     return $null
 }
 
-# ── Check Node ────────────────────────────────────────────────
 function Get-NodeCmd {
     try {
         $v = & node --version 2>&1
@@ -87,19 +77,26 @@ function Get-NodeCmd {
     return $null
 }
 
-# ── Download helper ───────────────────────────────────────────
 function Download-File([string]$url, [string]$dest) {
     try {
-        Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing -ErrorAction Stop
+        if (Test-Path $dest) {
+            Remove-Item -Path $dest -Force -ErrorAction SilentlyContinue
+        }
+        $wc = New-Object System.Net.WebClient
+        $wc.DownloadFile($url, $dest)
+        $wc.Dispose()
         return $true
     } catch {
-        return $false
+        try {
+            Invoke-RestMethod -Uri $url -OutFile $dest -ErrorAction Stop
+            return $true
+        } catch {
+            Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
+            return $false
+        }
     }
 }
 
-# ─────────────────────────────────────────────────────────────
-#  MAIN
-# ─────────────────────────────────────────────────────────────
 Show-LoaderBanner
 
 Write-Host "  Select mode:" -ForegroundColor White
@@ -115,7 +112,6 @@ Write-Host ""
 switch ($choice.Trim()) {
 
     "1" {
-        # ── Python mode ──────────────────────────────────────
         Write-Step "Checking Python..."
         $py = Get-PythonCmd
         if (-not $py) {
@@ -128,7 +124,6 @@ switch ($choice.Trim()) {
         }
         Write-Ok "Found: $py"
 
-        # Optional deps
         Write-Step "Checking optional deps (psutil)..."
         $psutil = & $py -c "import psutil; print('ok')" 2>&1
         if ($psutil -ne "ok") {
@@ -148,14 +143,12 @@ switch ($choice.Trim()) {
         Write-Ok "Downloaded to $dest"
         Write-Host ""
 
-        # Launch — new console window so stdin is clean for the REPL
         Write-Step "Launching Velocity (Python)..."
         Write-Host ""
         Start-Process -FilePath $py -ArgumentList "`"$dest`"" -NoNewWindow -Wait
     }
 
     "2" {
-        # ── Node mode ────────────────────────────────────────
         Write-Step "Checking Node.js..."
         $node = Get-NodeCmd
         if (-not $node) {
@@ -184,7 +177,6 @@ switch ($choice.Trim()) {
     }
 
     "3" {
-        # ── PS1 mode ─────────────────────────────────────────
         Write-Step "Downloading VelocityScan.ps1..."
         $dest = Join-Path $TMP "VelocityScan.ps1"
         $ok   = Download-File "$REPO_BASE/VelocityScan.ps1" $dest
